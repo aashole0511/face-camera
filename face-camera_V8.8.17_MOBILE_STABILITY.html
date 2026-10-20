@@ -1,0 +1,102 @@
+<!-- V8.8.16 FULL VERSION: camera page retained unchanged from working baseline. -->
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>สแกนใบหน้า - ระบบร้านซ่อม</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0f172a;color:#e5e7eb;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:18px}.card{width:min(100%,560px);background:#111c31;border:1px solid #334155;border-radius:20px;padding:20px;box-shadow:0 20px 60px #0006}h1{font-size:22px;margin:0 0 8px}p{color:#cbd5e1;line-height:1.55}.video-wrap{background:#020617;border-radius:16px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}.status{padding:12px;border-radius:12px;background:#1e293b;margin:12px 0;line-height:1.5;overflow-wrap:anywhere}.status.error{background:#7f1d1d}.status.good{background:#14532d}.row{display:flex;gap:10px;flex-wrap:wrap}button{border:0;border-radius:11px;padding:12px 16px;font-weight:700;font-size:15px;cursor:pointer}.primary{background:#38bdf8;color:#082f49}.secondary{background:#334155;color:#f8fafc}button:disabled{opacity:.45;cursor:not-allowed}.small{font-size:12px;color:#94a3b8;margin-top:14px}
+</style>
+<script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+</head>
+<body>
+<main class="card">
+<h1 id="heading">🔐 เตรียมระบบสแกนใบหน้า</h1>
+<p>อนุญาตให้เว็บนี้ใช้กล้องเมื่อเบราว์เซอร์ถาม จากนั้นจัดใบหน้าให้อยู่กลางภาพและมองกล้องโดยตรง</p>
+<div class="video-wrap"><video id="video" autoplay muted playsinline></video></div>
+<div id="status" class="status">กำลังเชื่อมต่อกับระบบร้านค้า…</div>
+<div class="row"><button id="start" class="primary" disabled>กำลังเตรียมระบบ…</button><button id="switch" class="secondary" disabled>🔄 สลับกล้อง</button><button id="close" class="secondary">ปิดหน้าต่าง</button></div>
+<div class="small">ข้อมูลใบหน้าจะถูกส่งกลับไปยังแท็บระบบร้านค้าที่เปิดหน้านี้เท่านั้น หน้านี้ไม่บันทึกข้อมูลใบหน้าไว้ใน URL</div>
+</main>
+<script>
+'use strict';
+const statusEl=document.getElementById('status');
+const video=document.getElementById('video');
+const startBtn=document.getElementById('start');
+const switchBtn=document.getElementById('switch');
+let stream=null,ready=false,mode='',busy=false,deviceId='',parentOrigin='',resultWatchdog=null;
+try{if(document.referrer)parentOrigin=new URL(document.referrer).origin}catch(e){}
+const ALLOWED_TYPES=new Set(['FACE_CAMERA_START_V8812','FACE_CAMERA_RESULT_V8812']);
+function say(message,type=''){statusEl.textContent=message;statusEl.className='status'+(type?' '+type:'')}
+function send(message){
+  if(!window.opener||window.opener.closed)return;
+  if(parentOrigin){window.opener.postMessage(message,parentOrigin);return;}
+  // READY มีเพียงสัญญาณพร้อมเชื่อมต่อ ไม่มีข้อมูลใบหน้า; ใช้เริ่ม handshake เมื่อ referrer ถูกซ่อน
+  if(message&&message.type==='FACE_CAMERA_READY_V8812')window.opener.postMessage(message,'*');
+}
+function stop(){if(stream){stream.getTracks().forEach(track=>track.stop());stream=null}try{video.pause();video.srcObject=null}catch(e){}}
+async function openCam(id=''){
+  stop();let lastError;
+  const attempts=[];
+  if(id)attempts.push({video:{deviceId:{exact:id}},audio:false});
+  attempts.push({video:{facingMode:{ideal:'user'},width:{ideal:640},height:{ideal:480}},audio:false});
+  attempts.push({video:true,audio:false});
+  for(const constraints of attempts){
+    try{stream=await navigator.mediaDevices.getUserMedia(constraints);break}
+    catch(error){lastError=error;if(['NotAllowedError','SecurityError','PermissionDeniedError'].includes(error.name))throw Error('กล้องถูกปฏิเสธสิทธิ์ กรุณาตั้งค่า Camera เป็น Allow สำหรับเว็บไซต์นี้ แล้วรีโหลดหน้า หากเปิดจากแอปแชตให้ลองเปิดด้วย Chrome/Safari โดยตรง')}
+  }
+  if(!stream)throw lastError||Error('เปิดกล้องไม่สำเร็จ');
+  video.srcObject=stream;await video.play();deviceId=stream.getVideoTracks()[0]?.getSettings?.().deviceId||'';switchBtn.disabled=false;
+}
+async function loadModels(){
+  if(!window.faceapi)throw Error('โหลด face-api.js ไม่สำเร็จ ตรวจอินเทอร์เน็ตหรือการบล็อก CDN');
+  const base='https://justadudewhohacks.github.io/face-api.js/models';
+  await Promise.all([faceapi.nets.tinyFaceDetector.loadFromUri(base),faceapi.nets.faceLandmark68Net.loadFromUri(base),faceapi.nets.faceRecognitionNet.loadFromUri(base)]);
+}
+async function getDescriptor(){
+  if(!video.videoWidth||!video.videoHeight)throw Error('กล้องยังไม่พร้อม กรุณารอสักครู่แล้วลองใหม่');
+  const result=await faceapi.detectSingleFace(video,new faceapi.TinyFaceDetectorOptions({inputSize:320,scoreThreshold:.55})).withFaceLandmarks().withFaceDescriptor();
+  if(!result)throw Error('ไม่พบใบหน้า กรุณาอยู่ตรงกลางภาพ หันหน้าตรง และเพิ่มแสงสว่าง');
+  return Array.from(result.descriptor);
+}
+async function begin(nextMode){
+  if(!['enroll','in','out'].includes(nextMode)){say('คำสั่งไม่ถูกต้อง กรุณากลับไปเริ่มจากระบบร้านค้า','error');return}
+  mode=nextMode;ready=false;busy=false;startBtn.disabled=true;
+  document.getElementById('heading').textContent=mode==='enroll'?'🧑‍💻 ลงทะเบียนใบหน้า':mode==='in'?'🕘 ยืนยันใบหน้าเพื่อเข้างาน':'🕔 ยืนยันใบหน้าเพื่อออกงาน';
+  startBtn.textContent=mode==='enroll'?'ลงทะเบียนใบหน้า':'เริ่มตรวจสอบใบหน้า';say('กำลังขอใช้กล้อง…');
+  try{await openCam();say('เปิดกล้องแล้ว กำลังโหลดระบบตรวจใบหน้า…');await loadModels();ready=true;startBtn.disabled=false;say('พร้อมแล้ว กดปุ่มเพื่อเริ่มตรวจสอบ','good')}
+  catch(error){say(error.message||'เตรียมกล้องไม่สำเร็จ','error');startBtn.disabled=true}
+}
+window.addEventListener('message',event=>{
+  if(!window.opener||event.source!==window.opener)return;
+  const message=event.data||{};
+  if(!message.type||!ALLOWED_TYPES.has(message.type))return;
+  // Mobile Chrome can report a referrer/origin different from the final Apps Script origin.
+  // Since event.source is exactly window.opener, use the actual origin of that opener message.
+  if(!parentOrigin||event.origin!==parentOrigin){parentOrigin=event.origin;}
+  if(message.type==='FACE_CAMERA_START_V8812')begin(message.mode);
+  if(message.type==='FACE_CAMERA_RESULT_V8812'){
+    if(resultWatchdog){clearTimeout(resultWatchdog);resultWatchdog=null;}
+    busy=false;startBtn.disabled=!ready;say(message.message||'ดำเนินการเสร็จสิ้น',message.ok?'good':'error');
+    startBtn.textContent=message.ok?'เสร็จสิ้น':(mode==='enroll'?'ลองลงทะเบียนอีกครั้ง':'ลองอีกครั้ง');
+    if(message.ok){stop();say((message.message||'บันทึกข้อมูลสำเร็จ')+' — เสร็จแล้ว สามารถกลับไปแท็บระบบร้านค้าได้','good');setTimeout(()=>{if(window.opener&&!window.opener.closed)window.close()},900);}
+  }
+});
+switchBtn.addEventListener('click',async()=>{
+  try{const devices=(await navigator.mediaDevices.enumerateDevices()).filter(item=>item.kind==='videoinput');if(devices.length<2){say('พบกล้อง '+devices.length+' ตัว ไม่มีกล้องอื่นให้สลับ');return}const current=devices.findIndex(item=>item.deviceId===deviceId);await openCam(devices[(current+1)%devices.length].deviceId);say('เปลี่ยนกล้องแล้ว','good')}
+  catch(error){say(error.message||'สลับกล้องไม่สำเร็จ','error')}
+});
+startBtn.addEventListener('click',async()=>{
+  if(!ready||busy)return;busy=true;startBtn.disabled=true;say('กำลังตรวจใบหน้า กรุณาอย่าขยับ…');
+  try{const samples=[];for(let i=0;i<3;i++){await new Promise(resolve=>setTimeout(resolve,450));samples.push(await getDescriptor())}const average=samples[0].map((_,index)=>samples.reduce((sum,item)=>sum+item[index],0)/samples.length);say('ส่งผลตรวจกลับไปยังระบบร้านค้า…');send({type:'FACE_CAMERA_DESCRIPTOR_V8812',descriptor:average});if(resultWatchdog)clearTimeout(resultWatchdog);resultWatchdog=setTimeout(()=>{if(busy){stop();say('ส่งข้อมูลแล้ว แต่ยังไม่ได้รับข้อความยืนยันจากหน้าร้าน หากข้อมูลถูกบันทึกแล้วให้กลับไปที่แท็บระบบร้านค้าและตรวจสอบเวลาเข้างาน/ออกงาน','error');startBtn.disabled=false;busy=false;}},12000)}
+  catch(error){busy=false;startBtn.disabled=false;say(error.message||'ตรวจใบหน้าไม่สำเร็จ','error')}
+});
+document.getElementById('close').addEventListener('click',()=>{stop();window.close();say('ปิดกล้องแล้ว หากหน้าต่างยังไม่ปิด สามารถปิดแท็บนี้ได้','')});
+window.addEventListener('beforeunload',stop);
+if(!window.opener){say('กรุณาเปิดหน้านี้จากปุ่มลงทะเบียน/เข้างาน/ออกงาน ภายในระบบร้านค้า','error')}
+else{send({type:'FACE_CAMERA_READY_V8812'});say(parentOrigin?'เชื่อมต่อแล้ว กำลังรอคำสั่งจากระบบร้านค้า…':'กำลังรอการเชื่อมต่อจากระบบร้านค้า…')}
+</script>
+</body>
+</html>
