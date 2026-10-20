@@ -1,0 +1,27 @@
+{
+  "id": "./",
+  "name": "ระบบจัดการร้านซ่อมมอเตอร์ไซค์",
+  "short_name": "ร้านซ่อม",
+  "description": "ระบบจัดการร้านซ่อมมอเตอร์ไซค์",
+  "lang": "th",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f1f5f9",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
